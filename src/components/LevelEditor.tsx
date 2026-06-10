@@ -66,6 +66,23 @@ export const LevelEditor: React.FC<LevelEditorProps> = ({
   const [showImport, setShowImport] = useState(false);
   const [hint, setHint] = useState(editLevel?.hint || '');
 
+  interface ToastItem {
+    id: number;
+    message: string;
+    type: 'info' | 'warning' | 'error';
+  }
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const showToast = useCallback(
+    (message: string, type: 'info' | 'warning' | 'error' = 'info') => {
+      const id = Date.now() + Math.random();
+      setToasts((prev) => [...prev, { id, message, type }]);
+      setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, 2600);
+    },
+    []
+  );
+
   const handleResize = useCallback(
     (newWidth: number, newHeight: number) => {
       const resizedGrid = resizeEditorGrid(grid, width, height, newWidth, newHeight);
@@ -93,6 +110,10 @@ export const LevelEditor: React.FC<LevelEditorProps> = ({
         height,
       });
 
+      if (result.message) {
+        showToast(result.message, result.messageType || 'info');
+      }
+
       if (!result.consumed) return;
       if (result.grid) setGrid(result.grid);
       if (result.start) setStart(result.start);
@@ -101,7 +122,7 @@ export const LevelEditor: React.FC<LevelEditorProps> = ({
 
       if (errors.length > 0) setErrors([]);
     },
-    [tool, grid, start, goal, stars, width, height, errors.length]
+    [tool, grid, start, goal, stars, width, height, errors.length, showToast]
   );
 
   const level: Level = useMemo(
@@ -180,7 +201,29 @@ export const LevelEditor: React.FC<LevelEditorProps> = ({
   };
 
   return (
-    <div className="min-h-screen py-6 px-4">
+    <div className="min-h-screen py-6 px-4 relative">
+      {/* Toast 提示容器 */}
+      <div className="fixed top-4 right-4 z-50 space-y-2 w-80 pointer-events-none">
+        {toasts.map((t) => {
+          const styleBase =
+            'px-4 py-3 rounded-xl shadow-lg border flex items-start gap-2 animate-slide-in';
+          const typeStyle =
+            t.type === 'warning'
+              ? 'bg-amber-50 border-amber-200 text-amber-800'
+              : t.type === 'error'
+                ? 'bg-red-50 border-red-200 text-red-800'
+                : 'bg-sky-50 border-sky-200 text-sky-800';
+          const icon =
+            t.type === 'warning' ? '⚠️' : t.type === 'error' ? '❌' : 'ℹ️';
+          return (
+            <div key={t.id} className={`${styleBase} ${typeStyle}`}>
+              <span className="text-base leading-5">{icon}</span>
+              <span className="text-sm font-medium flex-1 leading-5">{t.message}</span>
+            </div>
+          );
+        })}
+      </div>
+
       <div className="max-w-7xl mx-auto">
         <div className="game-card p-6 mb-4">
           <div className="flex items-center justify-between mb-6 flex-wrap gap-4">

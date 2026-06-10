@@ -65,8 +65,10 @@ export function toggleStarAt(stars: Position[], pos: Position): Position[] {
 export interface ToggleObstacleResult {
   grid: CellType[][];
   changed: boolean;
+  blocked: boolean;
   previousType: CellType;
   newType: CellType;
+  message?: string;
 }
 
 export function toggleObstacle(
@@ -76,7 +78,31 @@ export function toggleObstacle(
 ): ToggleObstacleResult {
   const current = getCell(grid, pos);
   if (current === null) {
-    return { grid, changed: false, previousType: 'empty', newType: 'empty' };
+    return {
+      grid,
+      changed: false,
+      blocked: false,
+      previousType: 'empty',
+      newType: 'empty',
+    };
+  }
+
+  const OTHER_LABEL: Record<ObstacleType, string> = {
+    wall: '墙壁',
+    pit: '陷阱',
+  };
+  const selfLabel = OTHER_LABEL[obstacleType];
+  const otherLabel = obstacleType === 'wall' ? OTHER_LABEL.pit : OTHER_LABEL.wall;
+
+  if (current !== obstacleType && current !== 'empty') {
+    return {
+      grid,
+      changed: false,
+      blocked: true,
+      previousType: current,
+      newType: current,
+      message: `该位置已有${otherLabel}，请先用擦除工具清除后再放置${selfLabel}`,
+    };
   }
 
   let newType: CellType;
@@ -89,6 +115,7 @@ export function toggleObstacle(
   return {
     grid: setCell(grid, pos, newType),
     changed: true,
+    blocked: false,
     previousType: current,
     newType,
   };
@@ -133,6 +160,9 @@ export interface EditorToolResult {
   goal?: Position;
   stars?: Position[];
   consumed: boolean;
+  blocked?: boolean;
+  message?: string;
+  messageType?: 'info' | 'warning' | 'error';
 }
 
 export function handleEditorToolClick(params: HandleEditorToolParams): EditorToolResult {
@@ -142,81 +172,188 @@ export function handleEditorToolClick(params: HandleEditorToolParams): EditorToo
 
   switch (tool) {
     case 'wall': {
-      if (positionEquals(clampedPos, start) || positionEquals(clampedPos, goal)) {
-        return { consumed: false };
+      if (positionEquals(clampedPos, start)) {
+        return {
+          consumed: false,
+          blocked: true,
+          messageType: 'warning',
+          message: '不能在起点位置放置墙壁',
+        };
+      }
+      if (positionEquals(clampedPos, goal)) {
+        return {
+          consumed: false,
+          blocked: true,
+          messageType: 'warning',
+          message: '不能在终点位置放置墙壁',
+        };
       }
       const toggleResult = toggleObstacle(grid, clampedPos, 'wall');
+      if (toggleResult.blocked) {
+        return {
+          consumed: false,
+          blocked: true,
+          messageType: 'warning',
+          message: toggleResult.message,
+        };
+      }
       if (!toggleResult.changed) return { consumed: false };
       const newStars = removeStarAt(stars, clampedPos);
       return {
         grid: toggleResult.grid,
         stars: newStars,
         consumed: true,
+        message:
+          toggleResult.previousType === 'wall'
+            ? '已移除墙壁'
+            : `已在 (${clampedPos.x},${clampedPos.y}) 放置墙壁`,
+        messageType: 'info',
       };
     }
 
     case 'pit': {
-      if (positionEquals(clampedPos, start) || positionEquals(clampedPos, goal)) {
-        return { consumed: false };
+      if (positionEquals(clampedPos, start)) {
+        return {
+          consumed: false,
+          blocked: true,
+          messageType: 'warning',
+          message: '不能在起点位置放置陷阱',
+        };
+      }
+      if (positionEquals(clampedPos, goal)) {
+        return {
+          consumed: false,
+          blocked: true,
+          messageType: 'warning',
+          message: '不能在终点位置放置陷阱',
+        };
       }
       const toggleResult = toggleObstacle(grid, clampedPos, 'pit');
+      if (toggleResult.blocked) {
+        return {
+          consumed: false,
+          blocked: true,
+          messageType: 'warning',
+          message: toggleResult.message,
+        };
+      }
       if (!toggleResult.changed) return { consumed: false };
       const newStars = removeStarAt(stars, clampedPos);
       return {
         grid: toggleResult.grid,
         stars: newStars,
         consumed: true,
+        message:
+          toggleResult.previousType === 'pit'
+            ? '已移除陷阱'
+            : `已在 (${clampedPos.x},${clampedPos.y}) 放置陷阱`,
+        messageType: 'info',
       };
     }
 
     case 'start': {
       if (isPositionBlockedForStartOrGoal(grid, clampedPos)) {
-        return { consumed: false };
+        const cell = getCell(grid, clampedPos);
+        const blockName = cell === 'wall' ? '墙壁' : cell === 'pit' ? '陷阱' : '障碍物';
+        return {
+          consumed: false,
+          blocked: true,
+          messageType: 'warning',
+          message: `该位置有${blockName}，不能设置为起点`,
+        };
       }
       if (positionEquals(clampedPos, goal)) {
-        return { consumed: false };
+        return {
+          consumed: false,
+          blocked: true,
+          messageType: 'warning',
+          message: '起点和终点不能在同一位置',
+        };
       }
+      const moved = !positionEquals(start, clampedPos);
       return {
         start: { ...clampedPos },
         stars: removeStarAt(stars, clampedPos),
         consumed: true,
+        message: moved ? `起点已移至 (${clampedPos.x},${clampedPos.y})` : undefined,
+        messageType: moved ? 'info' : undefined,
       };
     }
 
     case 'goal': {
       if (isPositionBlockedForStartOrGoal(grid, clampedPos)) {
-        return { consumed: false };
+        const cell = getCell(grid, clampedPos);
+        const blockName = cell === 'wall' ? '墙壁' : cell === 'pit' ? '陷阱' : '障碍物';
+        return {
+          consumed: false,
+          blocked: true,
+          messageType: 'warning',
+          message: `该位置有${blockName}，不能设置为终点`,
+        };
       }
       if (positionEquals(clampedPos, start)) {
-        return { consumed: false };
+        return {
+          consumed: false,
+          blocked: true,
+          messageType: 'warning',
+          message: '起点和终点不能在同一位置',
+        };
       }
+      const moved = !positionEquals(goal, clampedPos);
       return {
         goal: { ...clampedPos },
         stars: removeStarAt(stars, clampedPos),
         consumed: true,
+        message: moved ? `终点已移至 (${clampedPos.x},${clampedPos.y})` : undefined,
+        messageType: moved ? 'info' : undefined,
       };
     }
 
     case 'star': {
       if (isPositionBlockedForStar(grid, clampedPos, start, goal)) {
-        return { consumed: false };
+        const cell = getCell(grid, clampedPos);
+        let reason = '该位置不能放置星星';
+        if (cell === 'wall') reason = '墙壁位置不能放置星星';
+        else if (cell === 'pit') reason = '陷阱位置不能放置星星';
+        else if (positionEquals(clampedPos, start)) reason = '起点位置不能放置星星';
+        else if (positionEquals(clampedPos, goal)) reason = '终点位置不能放置星星';
+        return {
+          consumed: false,
+          blocked: true,
+          messageType: 'warning',
+          message: reason,
+        };
       }
+      const hasStar = stars.some((s) => positionEquals(s, clampedPos));
       return {
         stars: toggleStarAt(stars, clampedPos),
         consumed: true,
+        message: hasStar
+          ? `已移除 (${clampedPos.x},${clampedPos.y}) 的星星`
+          : `在 (${clampedPos.x},${clampedPos.y}) 添加了星星`,
+        messageType: 'info',
       };
     }
 
     case 'erase': {
       let newGrid = grid;
       const current = getCell(grid, clampedPos);
+      const erasedWhat: string[] = [];
       if (current && current !== 'empty') {
         newGrid = setCell(grid, clampedPos, 'empty');
+        erasedWhat.push(current === 'wall' ? '墙壁' : '陷阱');
       }
+      const hadStar = stars.some((s) => positionEquals(s, clampedPos));
+      if (hadStar) erasedWhat.push('星星');
+      const newStars = removeStarAt(stars, clampedPos);
       return {
         grid: newGrid,
-        stars: removeStarAt(stars, clampedPos),
+        stars: newStars,
         consumed: true,
+        message: erasedWhat.length > 0
+          ? `已清除 (${clampedPos.x},${clampedPos.y}) 的${erasedWhat.join('和')}`
+          : undefined,
+        messageType: erasedWhat.length > 0 ? 'info' : undefined,
       };
     }
 
